@@ -1,0 +1,728 @@
+---
+title: "Suicide Data Analysis"
+author: "Kevin Garcia"
+date: "2024-05-06"
+output: html_document
+---
+
+Loading datasets.
+
+```{r}
+suicide_data <- read.csv("Death_rates_for_suicide__by_sex__race__Hispanic_origin__and_age__United_States.csv")
+
+california_data <- read.csv("suicide-lghc-indicator-21.csv")
+
+leading_causes_d = read.csv('NCHS_-_Leading_Causes_of_Death__United_States.csv')
+
+
+```
+
+
+Loading libraries
+
+```{r}
+library(plotly)
+library(ggplot2)
+library(dplyr)
+library(readr)
+library(tidyverse)
+```
+
+
+
+
+## Introduction
+
+In this project, we will be focusing on data related to suicides in the United States, sourced primarily from the [data.gov](https://www.data.gov/) website. Our objective is to analyze various datasets to answer specific questions concerning suicide rates and associated factors within different demographics.
+
+
+### Research Questions
+
+1.	How does suicide compare against other causes of death in the United states? 
+2.	Focusing on suicide specifically what does the trend look like? 
+3.	What is the race that has committed the most suicides throughout the years according to the their estimate per 100,000 population. 
+5. What are the leading age groups among the different races? 
+6.	What is the gender committing the most suicides throughout the years.
+
+
+
+### Must know Terms:
+
+Suicide Rate: Number of suicide deaths in a year, divided by the population and multiplied by 100,000.
+
+Example:
+if the suicide rate is 30 that means that 30 out of 100,000 people are commiting suicide.
+
+
+
+
+
+### 1.	How does suicide compare against other causes of death in the United states.
+
+
+This data set is broken down by state, along with the number of deaths that occur in each state. We can use an age-adjusted weight column to perform our study. The Cause.Name column which includes the causes of death such as Alzheimer's disease, stroke, diabetes as well as suicide
+
+```{r}
+
+
+data_us <- leading_causes_d %>%
+  filter(State == "United States", 
+         Cause.Name %in% c("Heart Disease", "Cancer", "Stroke", "Suicide"))
+
+# Calculate the total deaths and average age-adjusted death rates
+summary_data <- data_us %>%
+  group_by(Cause.Name) %>%
+  summarise(Total_Deaths = sum(Deaths),
+            Average_Age_Adjusted_Death_Rate = mean(Age.adjusted.Death.Rate, na.rm = TRUE)) %>%
+  arrange(desc(Average_Age_Adjusted_Death_Rate)) # Sort by death rate
+
+
+plot <- ggplot(summary_data, aes(x = reorder(Cause.Name, -Average_Age_Adjusted_Death_Rate), y = Average_Age_Adjusted_Death_Rate, fill = Cause.Name)) +
+  geom_bar(stat = "identity", color = "black", width = 0.7) +
+  labs(title = "Total Deaths and Average Age-adjusted Death Rates by Cause",
+       x = "Cause of Death",
+       y = "Average Age-adjusted Death Rate (per 100,000 population)") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1), # Rotate x-axis labels for better visibility
+        legend.title = element_blank()) # Remove the legend title
+
+print(plot)
+
+
+```
+
+
+I included the two most common causes of death and suicide in this graph to compare the two. As you can see, suicide is at the bottom, which is why I wanted to do additional analysis and pay particular attention to suicide to see how it has changed over time.
+
+
+
+
+
+### 2.	Focusing on suicide specifically what does the trend look like.
+
+
+
+```{r}
+
+# Assuming your dataset is loaded into a variable called `data`
+# Filter data for suicides in the United States
+suicide_data_us <- leading_causes_d %>%
+  filter(State == "United States", Cause.Name == "Suicide")
+
+# Plot the trend of age-adjusted death rate over the years
+ggplot(suicide_data_us, aes(x = Year, y = Age.adjusted.Death.Rate)) +
+  geom_line(group=1, color="blue", size=1) + # Add a line plot
+  geom_point(color="red", size=2) + # Add points to each year
+  labs(title = "Trend of Age-adjusted Death Rate for Suicides in the United States",
+       x = "Year",
+       y = "Age-adjusted Death Rate (per 100,000 population)") +
+  theme_classic() 
+
+```
+
+As you can see focusing on the suicide data alone gives us an upward trend which is one of the reasons why I wanted to focus more specifically on suicides and see how that looks like in the United states.
+
+
+### Here we each state plotted according the the Age.ajusted.Death.Rate
+
+
+```{r}
+
+
+# Create the plot with adjusted text
+ggplot(leading_causes_d, aes(x = reorder(State, -Age.adjusted.Death.Rate), y = Age.adjusted.Death.Rate, fill = as.factor(Year))) +
+  geom_bar(stat = "identity") +
+  theme_minimal() +
+  labs(title = "Age adjusted Death Rates for Suicide by State",
+       x = "State",
+       y = "Age adjusted Death Rate",
+       fill = "Year") +
+  coord_flip() + # Flip coordinates to make the states appear along the y-axis
+  theme(axis.text.y = element_text(size = 8)) # Adjust text size
+
+
+```
+
+
+I would have loved to examine more this data set but there's not much more else we can do because there is no the data set is not broken down into races it's only broken down by states and their estimate therefore,  if we want to break things down even further we need to load another data set that actually contains dfifferent races and ages.
+
+
+
+
+### we will now be working with a dataset that contains suicides from 1950 to 2020.
+
+
+
+
+### However before we do any analysis on this data we need to prepare it.
+
+
+
+```{r}
+
+# Function to extract gender
+extract_gender <- function(label) {
+  if (str_detect(label, "Male")) {
+    return("Male")
+  } else if (str_detect(label, "Female")) {
+    return("Female")
+  } else {
+    return(NA)  # NA for entries without clear gender indication
+  }
+}
+
+# Function to extract age groups
+extract_age <- function(label) {
+  ages <- str_extract(label, "\\d+-\\d+ years")
+  if (!is.na(ages)) {
+    return(ages)
+  } else {
+    return("All ages")  # Default if no age range is specified
+  }
+}
+
+# Known race identifiers
+known_races <- c("White", "Black or African American", "Asian", "Hispanic or Latino")
+# Function to extract race
+extract_race <- function(label) {
+  for (race in known_races) {
+    if (str_detect(label, race)) {
+      return(race)
+    }
+  }
+  return("Other")  
+}
+
+# Applying these functions to create new columns
+suicide_data$Gender <- sapply(suicide_data$STUB_LABEL, extract_gender)
+suicide_data$Age_Group <- sapply(suicide_data$STUB_LABEL, extract_age)
+suicide_data$Race <- sapply(suicide_data$STUB_LABEL, extract_race)
+
+# Filter out entries without gender information if necessary
+suicide_data <- filter(suicide_data, !is.na(Gender))
+
+
+```
+
+
+Getting rid of the other column when it comes to the races. This will be only used once to proprely display the different races throughout the years without having a variable called other. 
+
+
+```{r}
+
+
+# Filter out the 'Other' category from the dataset
+suicide_data_filtered <- suicide_data %>%
+  filter(Race != "Other")
+
+
+```
+
+
+### After preparing the data we can now begin our analyis.
+
+
+
+
+
+```{r}
+
+race_year_trends <- suicide_data_filtered %>%
+  group_by(YEAR, Race) %>%
+  summarise(Average_Rate = mean(ESTIMATE, na.rm = TRUE), .groups = 'drop')
+
+# Plot the results
+ggplot(race_year_trends, aes(x = YEAR, y = Average_Rate, color = Race)) +
+  geom_line() +
+  labs(title = "Suicide Rates by Race Over the Years",
+       x = "Year",
+       y = "Suicide Rate (per 100,000 population)") +
+  theme_minimal()
+
+```
+
+
+As we can see there is a lot of information regarding the white and black or African American.
+However, there is less historical data available for some racial groups, such as Asian and Hispanic. However, this data collection will be the main focus of our investigation.Another thing that we can see from this graph is that the white race has the highest estimate rate follwoed by the hispanic or lation race.
+
+
+
+### We will be looking at the different races and ploting the age group comtting the most suicides according to their estimate. We will also further break this down into gender for each race.
+
+
+
+
+### We will now be looking at the highest age groups committing suicide for the white American race.
+
+```{r}
+white_age_trends <- suicide_data %>%
+  filter(Race == "White") %>%
+  group_by(Age_Group) %>%
+  summarise(Average_Rate = mean(ESTIMATE, na.rm = TRUE), .groups = 'drop') %>%
+  arrange(desc(Average_Rate))
+
+
+ggplot(white_age_trends, aes(x = reorder(Age_Group, -Average_Rate), y = Average_Rate, fill = Age_Group)) +
+  geom_bar(stat = "identity") +
+  labs(title = "Suicide Rates by Age Group within White Population",
+       x = "Age Group",
+       y = "Suicide Rate (per 100,000 population)") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+```
+
+### As we the age group committing the most suicides according their estimate rate among the white race is 74-85 years old.
+
+
+
+
+
+
+### Here we can see what the suicide rate for the white race looks like broken down into genders.
+
+
+```{r}
+
+white_gender_trends <- suicide_data %>%
+  filter(Race == "White") %>%
+  group_by(YEAR, Gender) %>%
+  summarise(Average_Rate = mean(ESTIMATE, na.rm = TRUE), .groups = 'drop')
+
+
+ggplot(white_gender_trends, aes(x = YEAR, y = Average_Rate, color = Gender)) +
+  geom_line() +
+  labs(title = "Suicide Rates by Gender within the White Population",
+       x = "Year",
+       y = "Suicide Rate (per 100,000 population)") +
+  theme_minimal()
+
+```
+
+
+### As we can see males have the highest suicide rate among the White race.
+
+
+
+
+
+
+
+### We will now be looking at the highest age groups committing suicide for the Hispanic race.
+
+```{r}
+
+hispanic_age_trends <- suicide_data %>%
+  filter(Race == "Hispanic or Latino") %>%
+  group_by(Age_Group) %>%
+  summarise(Average_Rate = mean(ESTIMATE, na.rm = TRUE), .groups = 'drop') %>%
+  arrange(desc(Average_Rate))
+
+
+ggplot(hispanic_age_trends, aes(x = reorder(Age_Group, -Average_Rate), y = Average_Rate, fill = Age_Group)) +
+  geom_bar(stat = "identity") +
+  labs(title = "Suicide Rates by Age Group within Hispanic Population",
+       x = "Age Group",
+       y = "Suicide Rate (per 100,000 population)") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+
+```
+
+### As we can see the leading age group among the Hispanic race is ages 15-24 years. 
+
+
+
+
+
+
+This is is the hispanic race broken down in to gender throughout the years.
+
+
+```{r}
+
+hispanic_gender_trends <- suicide_data %>%
+  filter(Race == "Hispanic or Latino") %>%
+  group_by(YEAR, Gender) %>%
+  summarise(Average_Rate = mean(ESTIMATE, na.rm = TRUE), .groups = 'drop')
+
+
+ggplot(hispanic_gender_trends, aes(x = YEAR, y = Average_Rate, color = Gender)) +
+  geom_line() +
+  labs(title = "Suicide Rates by Gender within the Hispanic Population",
+       x = "Year",
+       y = "Suicide Rate (per 100,000 population)") +
+  theme_minimal()
+
+```
+
+### As we can see males have the highest suicide rate among the Hispanic race.
+
+
+
+
+
+
+
+### We will now be looking at the highest age groups committing suicide for the Black or African American race.
+
+```{r}
+
+black_age_trends <- suicide_data %>%
+  filter(Race == "Black or African American") %>%
+  group_by(Age_Group) %>%
+  summarise(Average_Rate = mean(ESTIMATE, na.rm = TRUE), .groups = 'drop') %>%
+  arrange(desc(Average_Rate))
+
+
+ggplot(black_age_trends, aes(x = reorder(Age_Group, -Average_Rate), y = Average_Rate, fill = Age_Group)) +
+  geom_bar(stat = "identity") +
+  labs(title = "Suicide Rates by Age Group within African American Population",
+       x = "Age Group",
+       y = "Suicide Rate (per 100,000 population)") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+```
+
+### As we can see the leading age group among the Black or African American race is ages 75-84 years. 
+
+
+
+### We will now be looking at the African American Race broken down into genders.
+
+```{r}
+
+
+black_gender_trends <- suicide_data %>%
+  filter(Race == "Black or African American") %>%
+  group_by(YEAR, Gender) %>%
+  summarise(Average_Rate = mean(ESTIMATE, na.rm = TRUE), .groups = 'drop')
+
+
+ggplot(black_gender_trends, aes(x = YEAR, y = Average_Rate, color = Gender)) +
+  geom_line() +
+  labs(title = "Suicide Rates by Gender within the African American Population",
+       x = "Year",
+       y = "Suicide Rate (per 100,000 population)") +
+  theme_minimal()
+
+```
+
+
+### As we can see males have the highest suicide rate among the Black or African American race.
+
+
+
+
+### We will now be looking at the highest age groups committing suicide for the Asian race.
+
+
+```{r}
+
+asian_age_trends <- suicide_data %>%
+  filter(Race == "Asian") %>%
+  group_by(Age_Group) %>%
+  summarise(Average_Rate = mean(ESTIMATE, na.rm = TRUE), .groups = 'drop') %>%
+  arrange(desc(Average_Rate))
+
+
+ggplot(asian_age_trends, aes(x = reorder(Age_Group, -Average_Rate), y = Average_Rate, fill = Age_Group)) +
+  geom_bar(stat = "identity") +
+  labs(title = "Suicide Rates by Age Group within Asian Population",
+       x = "Age Group",
+       y = "Suicide Rate (per 100,000 population)") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+```
+
+
+
+### As we can see the leading age group among the Asian race is ages 15-24 years. 
+
+
+
+
+
+
+### We will now be breaking down the Asian race into their genders.
+
+```{r}
+
+
+
+asian_gender_trends <- suicide_data %>%
+  filter(Race == "Black or African American") %>%
+  group_by(YEAR, Gender) %>%
+  summarise(Average_Rate = mean(ESTIMATE, na.rm = TRUE), .groups = 'drop')
+
+
+ggplot(asian_gender_trends, aes(x = YEAR, y = Average_Rate, color = Gender)) +
+  geom_line() +
+  labs(title = "Suicide Rates by Gender within the Asian Population",
+       x = "Year",
+       y = "Suicide Rate (per 100,000 population)") +
+  theme_minimal()
+
+
+
+```
+
+
+As we can the gender that is more likely to commit suicide is the male gender.
+
+
+### We will now look at a comparison among genders combining all the races.
+
+
+```{r}
+
+gender_suicide_rates <- suicide_data_filtered %>%
+  group_by(Gender) %>%
+  summarise(Average_Rate = mean(ESTIMATE, na.rm = TRUE))
+
+
+ggplot(gender_suicide_rates, aes(x = Gender, y = Average_Rate, fill = Gender)) +
+  geom_col() +
+  labs(title = "Average Suicide Rates by Gender",
+       x = "Gender",
+       y = "Suicide Rate (per 100,000 population)") +
+  theme_minimal()
+
+
+```
+
+
+
+### We will now be looking at the age base trends compare against one another throughout the years.
+
+
+
+```{r}
+
+
+age_race_trends <- suicide_data_filtered %>%
+  group_by(Race, Age_Group) %>%
+  summarise(Average_Rate = mean(ESTIMATE, na.rm = TRUE), .groups = 'drop') %>%
+  arrange(Race, desc(Average_Rate))
+
+
+# Plotting the age distribution across races
+ggplot(age_race_trends, aes(x = Age_Group, y = Average_Rate, fill = Race)) +
+  geom_bar(stat = "identity", position = position_dodge()) +
+  labs(title = "Suicide Rates by Age Group Across Races",
+       x = "Age Group",
+       y = "Average Suicide Rate (per 100,000 population)",
+       fill = "Race") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))  # Improve x-axis label readability
+
+
+```
+
+I answered a lot of the questions that I haved with this dataset. Now I will to focus on one of the few states that releases information or data regarding suicides "California". Which means that we can further explored the different races and cities. This data set contains two very important columns that will help us with our analysis. One column is called numerator and the other one is called denomerator. This will help us properly estimate the rate.
+
+
+
+### First we need to prepare the data.
+
+
+
+```{r}
+
+
+
+city_race_suicide_rates <- california_data %>%
+  group_by(Geography, Strata.Name) %>%
+  summarise(Average_Rate = sum(Numerator) / sum(Denominator) * 100000, .groups = 'drop') %>%
+  arrange(desc(Average_Rate))
+
+
+
+# Filter out non-racial categories from the data
+racial_data <- california_data %>%
+  filter(Strata.Name %in% c("Asian-NH", "Black-NH", "Hisp", "White-NH", "Multi-NH", "AIAN-NH", "NHPI-NH")) %>%
+  group_by(Geography, Strata.Name) %>%
+  summarise(Average_Rate = sum(Numerator) / sum(Denominator) * 100000, .groups = 'drop') %>%
+  arrange(desc(Average_Rate))
+
+top_cities_by_race <- city_race_suicide_rates %>%
+  group_by(Strata.Name) %>%
+  slice_max(order_by = Average_Rate, n = 10)
+
+
+
+
+
+```
+
+
+
+
+
+### One of the questions that I want to answer when working with this data is what are the cities that contained the top 10 highest estimate rate broken down by race.
+
+
+
+### Here are the cities for the Asian Non-Hispanic race
+
+```{r}
+
+asian_nh_data <- filter(top_cities_by_race, Strata.Name == "Asian-NH")
+
+# Generate the plot for "Asian-NH"
+plot_asian_nh <- ggplot(asian_nh_data, aes(x = reorder(Geography, -Average_Rate), y = Average_Rate, fill = Geography)) +
+  geom_col(show.legend = FALSE) +
+  labs(title = "Top 10 Cities with Highest Suicide Rates for Asian Non Hispanic",
+       x = "City",
+       y = "Average Suicide Rate per 100,000") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+# Print the plot
+print(plot_asian_nh)
+
+```
+
+
+
+### Here are the cities for the white Non-Hispanic Race.
+
+```{r}
+
+white_nh_data <- filter(top_cities_by_race, Strata.Name == "White-NH")
+
+
+plot_white_nh <- ggplot(white_nh_data, aes(x = reorder(Geography, -Average_Rate), y = Average_Rate, fill = Geography)) +
+  geom_col(show.legend = FALSE) +
+  labs(title = "Top 10 Cities with Highest Suicide Rates for White Non Hispanic",
+       x = "City",
+       y = "Average Suicide Rate per 100,000") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+# Print the plot
+print(plot_white_nh)
+
+
+```
+
+
+### Here are the top 10 cities for the Black Non-Hispanic race
+
+
+```{r}
+
+black_nh_data <- filter(top_cities_by_race, Strata.Name == "Black-NH")
+
+# Generate the plot for "Black-NH"
+plot_black_nh <- ggplot(black_nh_data, aes(x = reorder(Geography, -Average_Rate), y = Average_Rate, fill = Geography)) +
+  geom_col(show.legend = FALSE) +
+  labs(title = "Top 10 Cities with Highest Suicide Rates for Black Non Hispanic",
+       x = "City",
+       y = "Average Suicide Rate per 100,000") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+# Print the plot
+print(plot_black_nh)
+```
+
+### Here are the top 10 cities for the Hispanic race
+
+
+```{r}
+hisp_data <- filter(top_cities_by_race, Strata.Name == "Hisp")
+
+plot_hisp <- ggplot(hisp_data, aes(x = reorder(Geography, -Average_Rate), y = Average_Rate, fill = Geography)) +
+  geom_col(show.legend = FALSE) +
+  labs(title = "Top 10 Cities with Highest Suicide Rates for Hispanic ",
+       x = "City",
+       y = "Average Suicide Rate per 100,000") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+# Print the plot
+print(plot_hisp)
+
+```
+
+
+
+### Here are all the cities and all the races combined.
+
+```{r}
+
+# Calculate average suicide rates per city across all races and years
+city_overall_rates <- california_data %>%
+  group_by(Geography) %>%
+  summarise(Average_Rate = sum(Numerator) / sum(Denominator) * 100000, .groups = 'drop') %>%
+  arrange(desc(Average_Rate))  # Sorting cities from highest to lowest average rate
+
+
+ggplot(city_overall_rates, aes(x = reorder(Geography, -Average_Rate), y = Average_Rate, fill = Geography)) +
+  geom_col(show.legend = FALSE) +  # Using a column chart
+  labs(title = "Average Suicide Rates per City Across All Races and Years",
+       x = "City",
+       y = "Average Suicide Rate per 100,000 Population") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5))  
+
+
+```
+
+
+
+Finally we have a plot of Suicide Rates for all the races combined among the year.
+
+
+```{r}
+
+
+
+race_data <- california_data %>%
+  filter(Strata.Name %in% c("Asian-NH", "Black-NH", "Hisp", "White-NH", "Multi-NH", "AIAN-NH", "NHPI-NH"))
+
+
+race_rates_over_time <- race_data %>%
+  group_by(Year, Strata.Name) %>%
+  summarise(Suicide_Rate = sum(Numerator) / sum(Denominator) * 100000, .groups = 'drop') %>%
+  arrange(Year, Strata.Name)
+
+
+ggplot(race_rates_over_time, aes(x = Year, y = Suicide_Rate, color = Strata.Name)) +
+  geom_line() +  # Line plot for each race
+  geom_point() +  # Points on each data point for better visibility
+  labs(title = "Suicide Rates by Race Over the Years",
+       x = "Year",
+       y = "Suicide Rate per 100,000 Population") +
+  theme_minimal() 
+
+
+
+```
+
+### Questions answered.
+
+1.	How does suicide compare against other causes of death in the United states? Suicides is one of the least leading causes of death.
+
+2.	Focusing on suicide specifically what does the trend look like? Whenever we look at the Suicides data specifically we have an upwards trend throughout the years.
+
+3.	What is the race that has committed the most suicides throughout the years according to the their estimate per 100,000 population. The white race: This is also one of the races that contains the most data.
+
+5. What are the leading age groups among the different races? 
+White: Highest to lowest. 75-84, 65-74, 45-64, 24-44, 15-24
+Hispanic: Highest to lowest. 15-24, 25-44, 45-64
+African: Highest to lowest. 75-84, 65-74, 25-44, 45-64
+Asian: Highest to lowest: 15-24, 45-64, 25-44
+
+6.	What is the gender committing the most suicides throughout the years. The male gender?
+
+
+
+# CONCLUSION:
+
+
+In the United States, suicide, although one of the less prevalent causes of death compared to others, shows a concerning upward trend over the years. Data analysis reveals that among racial groups, whites have the highest suicide rates per 100,000 population, which correlates with the volume of data available for this group. Among various age segments, suicide rates vary, with older white adults (75-84 years) experiencing the highest rates, whereas among Hispanics and Asians, younger age groups (15-24 years) see the highest suicide rates. Males are consistently the gender most affected by suicides across all racial and age groups. This analysis underscores the critical need for targeted mental health interventions and preventive measures tailored to specific demographic groups.
